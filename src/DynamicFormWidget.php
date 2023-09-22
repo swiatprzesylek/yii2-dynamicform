@@ -8,6 +8,7 @@
 namespace swiatprzesylek\dynamicform;
 
 use Yii;
+use yii\db\ActiveRecord;
 use yii\helpers\Html;
 use yii\helpers\Json;
 use yii\base\InvalidConfigException;
@@ -232,6 +233,10 @@ class DynamicFormWidget extends \yii\base\Widget
         $document = new \DOMDocument('1.0', \Yii::$app->charset);
         $document->appendChild($document->importNode($results->first()->getNode(0), true));
         $this->_options['template'] = trim($document->saveHTML());
+
+        if ($this->model instanceof ActiveRecord && isset($this->_options['min']) && $this->_options['min'] === 0 && $this->model->isNewRecord) {
+            $content = $this->removeItems($content);
+        }
 
         $this->hashOptions();
         $view = $this->getView();
