@@ -486,6 +486,14 @@
                 $(this).bootstrapSwitch(eval($(this).attr('data-krajee-bootstrapswitch')));
             });
         }
+
+        // "kartik-v/yii2-sortable"
+        var $hasKvSortable = $(widgetOptionsRoot.widgetItem).find('[data-krajee-kvhtml5sortable]');
+        if ($hasKvSortable.length > 0) {
+            $hasKvSortable.each(function() {
+                $(this).kvHtml5Sortable(eval($(this).attr('data-krajee-kvhtml5sortable')));
+            });
+        }
     };
 
 })(window.jQuery);
