@@ -33,9 +33,28 @@
 
     var methods = {
         init: function (widgetOptions) {
-            return this.each(function () {
-                widgetOptions.template = _parseTemplate(widgetOptions);
+            var $containers = $('.' + widgetOptions.widgetContainer);
+            var shouldParseTemplate = !$containers.length;
+
+            $containers.each(function () {
+                var $container = $(this);
+                if (!$container.data(pluginName)) {
+                    $container.data(pluginName, true);
+                    shouldParseTemplate = true;
+                }
             });
+
+            if (shouldParseTemplate && !widgetOptions._templateParsed) {
+                widgetOptions.template = _parseTemplate(widgetOptions);
+                widgetOptions._templateParsed = true;
+            }
+
+            return this;
+        },
+
+        refresh: function (widgetOptions) {
+            widgetOptions.template = _removeErrorSuccessClasses($(widgetOptions.template), widgetOptions);
+            return this;
         },
 
         addItem: function (widgetOptions, e, $elem) {
@@ -48,10 +67,45 @@
 
         updateContainer: function () {
             var widgetOptions = eval($(this).attr('data-dynamicform'));
+            var validationSnapshot = _detachFormValidation(widgetOptions);
             _updateAttributes(widgetOptions);
             _restoreSpecialJs(widgetOptions);
-            _fixFormValidaton(widgetOptions);
+            _restoreFormValidation(widgetOptions, validationSnapshot);
         }
+    };
+
+    var _getActiveForm = function(widgetOptions) {
+        var $form = $(document.getElementById(widgetOptions.formId));
+
+        if (!$form.length || typeof $form.yiiActiveForm !== 'function') {
+            return null;
+        }
+
+        var data = $form.data('yiiActiveForm');
+        if (!data || !$.isArray(data.attributes)) {
+            return null;
+        }
+
+        return {
+            $form: $form,
+            data: data
+        };
+    };
+
+    var _removeErrorSuccessClasses = function($template, widgetOptions) {
+        var activeForm = _getActiveForm(widgetOptions);
+
+        if (activeForm && activeForm.data.settings) {
+            var $elements = $template.find('*').addBack();
+            if (activeForm.data.settings.errorCssClass) {
+                $elements.removeClass(activeForm.data.settings.errorCssClass);
+            }
+            if (activeForm.data.settings.successCssClass) {
+                $elements.removeClass(activeForm.data.settings.successCssClass);
+            }
+        }
+
+        return $template;
     };
 
     var _parseTemplate = function(widgetOptions) {
@@ -85,12 +139,7 @@
             }
         });
 
-        // remove "error/success" css class
-        var yiiActiveFormData = $('#' + widgetOptions.formId).yiiActiveForm('data');
-        $template.find('.' + yiiActiveFormData.settings.errorCssClass).removeClass(yiiActiveFormData.settings.errorCssClass);
-        $template.find('.' + yiiActiveFormData.settings.successCssClass).removeClass(yiiActiveFormData.settings.successCssClass);
-
-        return $template;
+        return _removeErrorSuccessClasses($template, widgetOptions);
     };
 
     var _getWidgetOptionsRoot = function(widgetOptions) {
@@ -115,8 +164,9 @@
         var count = _count($elem, widgetOptions);
 
         if (count < widgetOptions.limit) {
-            $toclone = $(widgetOptions.template);
-            $newclone = $toclone.clone(false, false);
+            var validationSnapshot = _detachFormValidation(widgetOptions);
+            var $toclone = _removeErrorSuccessClasses($(widgetOptions.template), widgetOptions);
+            var $newclone = $toclone.clone(false, false);
 
             if (widgetOptions.insertPosition === 'top') {
                 $elem.closest('.' + widgetOptions.widgetContainer).find(widgetOptions.widgetBody).prepend($newclone);
@@ -126,7 +176,7 @@
 
             _updateAttributes(widgetOptions);
             _restoreSpecialJs(widgetOptions);
-            _fixFormValidaton(widgetOptions);
+            _restoreFormValidation(widgetOptions, validationSnapshot);
             $elem.closest('.' + widgetOptions.widgetContainer).triggerHandler(events.afterInsert, $newclone);
         } else {
             // trigger a custom event for hooking
@@ -134,56 +184,22 @@
         }
     };
 
-    var _removeValidations = function($elem, widgetOptions, count) {
-        if (count > 1) {
-            $elem.find('div[data-dynamicform]').each(function() {
-                var currentWidgetOptions = eval($(this).attr('data-dynamicform'));
-                var level           = _getLevel($(this));
-                var identifiers     = _createIdentifiers(level);
-                var numItems        = $(this).find(currentWidgetOptions.widgetItem).length;
-
-                for (var i = 1; i <= numItems -1; i++) {
-                    var aux = identifiers;
-                    aux[level] = i;
-                    currentWidgetOptions.fields.forEach(function(input) {
-                        var id = input.id.replace("{}", aux.join('-'));
-                        if ($("#" + currentWidgetOptions.formId).yiiActiveForm("find", id) !== "undefined") {
-                            $("#" + currentWidgetOptions.formId).yiiActiveForm("remove", id);
-                        }
-                    });
-                }
-            });
-
-            var level          = _getLevel($elem.closest('.' + widgetOptions.widgetContainer));
-            var widgetOptionsRoot       = _getWidgetOptionsRoot(widgetOptions);
-            var identifiers    = _createIdentifiers(level);
-            identifiers[0]     = $(widgetOptionsRoot.widgetItem).length - 1;
-            identifiers[level] = count - 1;
-
-            widgetOptions.fields.forEach(function(input) {
-                var id = input.id.replace("{}", identifiers.join('-'));
-                if ($("#" + widgetOptions.formId).yiiActiveForm("find", id) !== "undefined") {
-                    $("#" + widgetOptions.formId).yiiActiveForm("remove", id);
-                }
-            });
-        }
-    };
-
     var _deleteItem = function(widgetOptions, e, $elem) {
         var count = _count($elem, widgetOptions);
 
         if (count > widgetOptions.min) {
-            $todelete = $elem.closest(widgetOptions.widgetItem);
+            var $todelete = $elem.closest(widgetOptions.widgetItem);
 
             // trigger a custom event for hooking
-            var eventResult = $('.' + widgetOptions.widgetContainer).triggerHandler(events.beforeDelete, $todelete);
+            var $widget = $elem.closest('.' + widgetOptions.widgetContainer);
+            var eventResult = $widget.triggerHandler(events.beforeDelete, $todelete);
             if (eventResult !== false) {
-                _removeValidations($todelete, widgetOptions, count);
+                var validationSnapshot = _detachFormValidation(widgetOptions);
                 $todelete.remove();
                 _updateAttributes(widgetOptions);
                 _restoreSpecialJs(widgetOptions);
-                _fixFormValidaton(widgetOptions);
-                $('.' + widgetOptions.widgetContainer).triggerHandler(events.afterDelete);
+                _restoreFormValidation(widgetOptions, validationSnapshot);
+                $widget.triggerHandler(events.afterDelete);
             }
         }
     };
@@ -282,44 +298,153 @@
         });
     };
 
-    var _fixFormValidatonInput = function(widgetOptions, attribute, id, name) {
-        if (attribute !== undefined) {
-            attribute           = $.extend(true, {}, attribute);
-            attribute.id        = id;
-            attribute.container = ".field-" + id;
-            attribute.input     = "#" + id;
-            attribute.name      = name;
-            attribute.value     = $("#" + id).val();
-            attribute.status    = 0;
-
-            if ($("#" + widgetOptions.formId).yiiActiveForm("find", id) !== "undefined") {
-                $("#" + widgetOptions.formId).yiiActiveForm("remove", id);
-            }
-
-            $("#" + widgetOptions.formId).yiiActiveForm("add", attribute);
-        }
+    var _getWidgetBody = function(widgetOptions) {
+        var $container = $('.' + widgetOptions.widgetContainer);
+        return $container.filter(widgetOptions.widgetBody).add($container.find(widgetOptions.widgetBody));
     };
 
-    var _fixFormValidaton = function(widgetOptions) {
-        var widgetOptionsRoot = _getWidgetOptionsRoot(widgetOptions);
+    var _validationKey = function(id) {
+        if (typeof id !== 'string') {
+            return null;
+        }
 
-        $(widgetOptionsRoot.widgetBody).find('input, textarea, select').each(function() {
-            var id   = $(this).attr('id');
-            var name = $(this).attr('name');
+        return id.replace(/-\d+(?=-|$)/g, '-{}');
+    };
 
-            if (id !== undefined && name !== undefined) {
-                currentWidgetOptions = eval($(this).closest('div[data-dynamicform]').attr('data-dynamicform'));
-                var matches = id.match(regexID);
+    var _findAttributeInput = function($form, attribute) {
+        var input = attribute.id ? document.getElementById(attribute.id) : null;
 
-                if (matches && matches.length === 4) {
-                    matches[2]      = matches[2].substring(1, matches[2].length - 1);
-                    var level       = _getLevel($(this));
-                    var identifiers = _createIdentifiers(level -1);
-                    var baseID      = matches[1] + '-' + identifiers.join('-') + '-' + matches[3];
-                    var attribute   = $("#" + currentWidgetOptions.formId).yiiActiveForm("find", baseID);
-                    _fixFormValidatonInput(currentWidgetOptions, attribute, id, name);
-                }
+        if (!input && typeof attribute.input === 'string') {
+            try {
+                input = $form.find(attribute.input).first()[0];
+            } catch (ignore) {
+                input = null;
             }
+        }
+
+        return input;
+    };
+
+    var _findAttribute = function(attributes, id) {
+        var result;
+
+        $.each(attributes, function() {
+            if (this.id === id) {
+                result = this;
+                return false;
+            }
+        });
+
+        return result;
+    };
+
+    var _detachFormValidation = function(widgetOptions) {
+        var activeForm = _getActiveForm(widgetOptions);
+        if (!activeForm) {
+            return null;
+        }
+
+        var widgetOptionsRoot = _getWidgetOptionsRoot(widgetOptions);
+        var $widgetBody = _getWidgetBody(widgetOptionsRoot);
+        var templateKeys = {};
+
+        $(widgetOptionsRoot.template).find('input, textarea, select').each(function() {
+            if (this.id) {
+                templateKeys[_validationKey(this.id)] = true;
+            }
+        });
+
+        var snapshot = {
+            $form: activeForm.$form,
+            entries: [],
+            templates: widgetOptionsRoot._validationTemplates || {}
+        };
+
+        activeForm.data.attributes.slice().forEach(function(attribute) {
+            var input = _findAttributeInput(activeForm.$form, attribute);
+            var key = _validationKey(attribute.id);
+            var isWidgetInput = input && ($widgetBody.is(input) || $widgetBody.has(input).length);
+
+            if (!isWidgetInput && (input || !templateKeys[key])) {
+                return;
+            }
+
+            var entry = {
+                attribute: $.extend(true, {}, attribute),
+                input: input
+            };
+            snapshot.entries.push(entry);
+            if (key !== null && snapshot.templates[key] === undefined) {
+                snapshot.templates[key] = entry.attribute;
+            }
+        });
+
+        widgetOptionsRoot._validationTemplates = snapshot.templates;
+
+        snapshot.entries.forEach(function(entry) {
+            if (_findAttribute(activeForm.data.attributes, entry.attribute.id) !== undefined) {
+                activeForm.$form.yiiActiveForm('remove', entry.attribute.id);
+            }
+        });
+
+        return snapshot;
+    };
+
+    var _replaceAttributeId = function(selector, oldId, newId) {
+        if (typeof selector !== 'string' || !oldId) {
+            return selector;
+        }
+
+        return selector.split(oldId).join(newId);
+    };
+
+    var _restoreFormValidation = function(widgetOptions, snapshot) {
+        var activeForm = _getActiveForm(widgetOptions);
+        if (!snapshot || !activeForm || snapshot.$form[0] !== activeForm.$form[0]) {
+            return;
+        }
+
+        var widgetOptionsRoot = _getWidgetOptionsRoot(widgetOptions);
+        var added = {};
+
+        _getWidgetBody(widgetOptionsRoot).find('input, textarea, select').each(function() {
+            var input = this;
+            var id = input.id;
+            var name = input.name;
+
+            if (!id || !name || added[id]) {
+                return;
+            }
+
+            var sourceAttribute;
+            $.each(snapshot.entries, function() {
+                if (this.input === input) {
+                    sourceAttribute = this.attribute;
+                    return false;
+                }
+            });
+
+            if (sourceAttribute === undefined) {
+                sourceAttribute = snapshot.templates[_validationKey(id)];
+            }
+            if (sourceAttribute === undefined) {
+                return;
+            }
+
+            var attribute = $.extend(true, {}, sourceAttribute);
+            var oldId = attribute.id;
+            attribute.id = id;
+            attribute.container = _replaceAttributeId(attribute.container, oldId, id);
+            attribute.input = _replaceAttributeId(attribute.input, oldId, id);
+            attribute.name = name;
+            attribute.value = $(input).val();
+            attribute.status = 0;
+
+            if (_findAttribute(activeForm.data.attributes, id) !== undefined) {
+                activeForm.$form.yiiActiveForm('remove', id);
+            }
+            activeForm.$form.yiiActiveForm('add', attribute);
+            added[id] = true;
         });
     };
 

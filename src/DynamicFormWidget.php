@@ -202,24 +202,34 @@ class DynamicFormWidget extends \yii\base\Widget
     {
         DynamicFormAsset::register($view);
 
-        // add a click handler for the clone button
-        $js = 'jQuery("#' . $this->formId . '").on("click", "' . $this->insertButton . '", function(e) {'. "\n";
-        $js .= "    e.preventDefault();\n";
-        $js .= '    jQuery(".' .  $this->widgetContainer . '").triggerHandler("beforeInsert", [jQuery(this)]);' . "\n";
-        $js .= '    jQuery(".' .  $this->widgetContainer . '").yiiDynamicForm("addItem", '. $this->_hashVar . ", e, jQuery(this));\n";
-        $js .= "});\n";
-        $view->registerJs($js, $view::POS_READY);
+        $formId = Json::encode($this->formId);
+        $widgetSelector = Json::encode('.' . $this->widgetContainer);
+        $insertButton = Json::encode($this->insertButton);
+        $deleteButton = Json::encode($this->deleteButton);
+        $eventNamespace = Json::encode('.yiiDynamicForm_' . $this->widgetContainer);
 
-        // add a click handler for the remove button
-        $js = 'jQuery("#' . $this->formId . '").on("click", "' . $this->deleteButton . '", function(e) {'. "\n";
-        $js .= "    e.preventDefault();\n";
-        $js .= '    jQuery(".' .  $this->widgetContainer . '").yiiDynamicForm("deleteItem", '. $this->_hashVar . ", e, jQuery(this));\n";
-        $js .= "});\n";
-        $view->registerJs($js, $view::POS_READY);
-
-        $js = 'jQuery(document).ready(function() {' . "\n";
-        $js .= '    jQuery("#' . $this->formId . '").yiiDynamicForm(' . $this->_hashVar .');' . "\n";
-        $js .= '});' . "\n";
+        $js = '(function ($) {' . "\n";
+        $js .= '    var $form = $(document.getElementById(' . $formId . '));' . "\n";
+        $js .= '    var eventNamespace = ' . $eventNamespace . ';' . "\n";
+        $js .= '    if (!$form.length) {' . "\n";
+        $js .= '        return;' . "\n";
+        $js .= '    }' . "\n";
+        $js .= '    $form.off(eventNamespace);' . "\n";
+        $js .= '    $form.on("click" + eventNamespace, ' . $insertButton . ', function (e) {' . "\n";
+        $js .= '        e.preventDefault();' . "\n";
+        $js .= '        var $widget = $(this).closest(' . $widgetSelector . ');' . "\n";
+        $js .= '        $widget.triggerHandler("beforeInsert", [$(this)]);' . "\n";
+        $js .= '        $widget.yiiDynamicForm("addItem", ' . $this->_hashVar . ', e, $(this));' . "\n";
+        $js .= '    });' . "\n";
+        $js .= '    $form.on("click" + eventNamespace, ' . $deleteButton . ', function (e) {' . "\n";
+        $js .= '        e.preventDefault();' . "\n";
+        $js .= '        $(this).closest(' . $widgetSelector . ').yiiDynamicForm("deleteItem", ' . $this->_hashVar . ', e, $(this));' . "\n";
+        $js .= '    });' . "\n";
+        $js .= '    $form.on("afterInit" + eventNamespace, function () {' . "\n";
+        $js .= '        $form.yiiDynamicForm("refresh", ' . $this->_hashVar . ');' . "\n";
+        $js .= '    });' . "\n";
+        $js .= '    $form.yiiDynamicForm(' . $this->_hashVar . ');' . "\n";
+        $js .= '})(jQuery);' . "\n";
         $view->registerJs($js, $view::POS_READY);
     }
 
